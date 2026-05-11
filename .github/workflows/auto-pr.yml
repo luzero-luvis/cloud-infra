@@ -66,19 +66,7 @@ jobs:
               --base main \
               --head "$BRANCH" \
               --fill \
-              --body "$(cat <<'EOF'
-## What changed
-<!-- Describe what this PR does -->
-
-## Checklist
-- [ ] terraform fmt passes
-- [ ] terraform validate passes
-- [ ] checkov scan passes
-- [ ] plan output reviewed
-
-> This PR was created automatically when the branch was pushed.
-EOF
-)"
+              --body "## What changed\n\n## Checklist\n- [ ] terraform fmt passes\n- [ ] terraform validate passes\n- [ ] checkov scan passes\n- [ ] plan output reviewed\n\n> This PR was created automatically when the branch was pushed."
           else
             # PR already exists — do nothing
             echo "PR #$EXISTING_PR already exists for $BRANCH. Skipping."
