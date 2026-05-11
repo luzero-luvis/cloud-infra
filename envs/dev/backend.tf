@@ -4,7 +4,7 @@
 # This file answers three questions:
 #   1. Where does Terraform save its state file? (backend)
 #   2. Which cloud does Terraform talk to? (provider)
-#   3. How is the state file encrypted? (encryption)
+#   3. How is the state file encrypted? (encryption),
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {
