@@ -10,7 +10,7 @@
 
 locals {
   common_tags = {
-    environment = "prod"             # identifies this as production infrastructure
+    environment = "prod" # identifies this as production infrastructure
     project     = "cloud-infra"
     owner       = "platform-team"
     cost_center = "engineering"

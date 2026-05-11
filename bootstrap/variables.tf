@@ -7,14 +7,14 @@
 
 variable "region" {
   description = "AWS region where all resources will be created"
-  type        = string  # must be text (not a number or true/false)
+  type        = string      # must be text (not a number or true/false)
   default     = "us-east-1" # if you do not set this, us-east-1 is used automatically
 }
 
 variable "environments" {
   description = "List of environments to create state buckets for"
-  type        = list(string)        # a list of text values
-  default     = ["dev", "prod"]     # creates two buckets: one for dev, one for prod
+  type        = list(string)    # a list of text values
+  default     = ["dev", "prod"] # creates two buckets: one for dev, one for prod
   # To add staging: default = ["dev", "staging", "prod"]
 }
 

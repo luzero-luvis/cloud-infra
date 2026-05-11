@@ -12,7 +12,7 @@ module "vpc" {
 
   env        = "prod"
   cidr_block = "10.1.0.0/16" # different range from dev (10.0.x.x) so they never clash
-                              # useful if you ever connect dev and prod via VPC peering
+  # useful if you ever connect dev and prod via VPC peering
 
   tags = local.common_tags
 }
