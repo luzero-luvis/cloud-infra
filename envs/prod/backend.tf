@@ -27,26 +27,6 @@ terraform {
     encrypt      = true
   }
 
-  # Same passphrase encryption as dev.
-  # Both environments use the same passphrase (stored in one GitHub Secret).
-  # The actual state files are different — only the encryption method is shared.
-  encryption {
-    key_provider "pbkdf2" "local" {
-      passphrase = var.state_passphrase
-    }
-
-    method "aes_gcm" "default" {
-      keys = key_provider.pbkdf2.local
-    }
-
-    state {
-      method = method.aes_gcm.default
-    }
-
-    plan {
-      method = method.aes_gcm.default
-    }
-  }
 }
 
 provider "aws" {

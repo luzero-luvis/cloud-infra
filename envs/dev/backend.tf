@@ -9,9 +9,7 @@
 
 terraform {
   # Minimum Terraform version required to use this code.
-  # We need 1.10+ because:
-  #   - use_lockfile (native S3 locking) was added in 1.10
-  #   - the encryption block was added in 1.10
+  # We need 1.10+ because use_lockfile (native S3 locking) was added in 1.10.
   required_version = ">= 1.10"
 
   required_providers {
@@ -43,46 +41,6 @@ terraform {
     encrypt = true
   }
 
-  # ── ENCRYPTION BLOCK ───────────────────────────────────────────────────────
-  # This adds a SECOND layer of encryption on top of S3's encryption.
-  #
-  # S3 encryption (above):  AWS encrypts the file using their key — they can read it
-  # Passphrase encryption:  YOU encrypt it using your passphrase — only you can read it
-  #
-  # Even if an AWS employee or hacker got into your S3 bucket,
-  # the file is scrambled with your passphrase and unreadable.
-  #
-  # How to set the passphrase:
-  #   export TF_VAR_state_passphrase="your-secret-phrase"
-  # The TF_VAR_ prefix tells Terraform to use it as a variable value.
-
-  encryption {
-    # pbkdf2 = "Password-Based Key Derivation Function 2"
-    # This converts your human-readable passphrase into a cryptographic key.
-    # It runs the passphrase through a complex math function thousands of times
-    # so that guessing it by brute force is extremely slow.
-    key_provider "pbkdf2" "local" {
-      passphrase = var.state_passphrase # comes from variables.tf, set via env var
-    }
-
-    # aes_gcm = "Advanced Encryption Standard - Galois/Counter Mode"
-    # This is the actual encryption algorithm used to scramble the file.
-    # AES-GCM is the same standard used by banks and governments.
-    method "aes_gcm" "default" {
-      keys = key_provider.pbkdf2.local # use the key derived from our passphrase
-    }
-
-    # Encrypt the state file (terraform.tfstate) using the method above
-    state {
-      method = method.aes_gcm.default
-    }
-
-    # Also encrypt the plan file (terraform plan -out=tfplan)
-    # Plan files can also contain sensitive data, so encrypt them too
-    plan {
-      method = method.aes_gcm.default
-    }
-  }
 }
 
 # ── PROVIDER ─────────────────────────────────────────────────────────────────
