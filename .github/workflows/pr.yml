@@ -177,11 +177,8 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       # Connect to the S3 backend and download the current state file
-      # STATE_PASSPHRASE is used to decrypt the state file (our passphrase encryption)
       - name: terraform init
         run: terraform init
-        env:
-          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
 
       # Generate the plan — asks AWS "what would change if we apply this code?"
       # -out=tfplan.binary  saves the plan to a file (for the artifact upload)
@@ -190,8 +187,6 @@ jobs:
       # 2>&1                captures both normal output and errors into plan.txt
       - name: terraform plan
         id: plan
-        env:
-          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
         run: |
           terraform plan -out=tfplan.binary -no-color 2>&1 | tee plan.txt
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT

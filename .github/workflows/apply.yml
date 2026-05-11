@@ -59,19 +59,14 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       # Connect to S3 backend and download the current state file
-      # STATE_PASSPHRASE decrypts the state file (our passphrase encryption)
       - name: terraform init
         run: terraform init
-        env:
-          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
 
       # Actually create/modify/delete resources in AWS dev account
       # -auto-approve  means do not ask "are you sure?" (we already approved via PR review)
       # -no-color      removes color codes so logs are clean
       # After this runs, the new state is saved back to S3 automatically
       - name: terraform apply
-        env:
-          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
         run: terraform apply -auto-approve -no-color
 
 
@@ -116,12 +111,8 @@ jobs:
       # Connect to S3 backend and download the prod state file
       - name: terraform init
         run: terraform init
-        env:
-          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
 
       # Actually create/modify/delete resources in AWS prod account
       # This only runs after a human has clicked Approve in the GitHub UI
       - name: terraform apply
-        env:
-          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
         run: terraform apply -auto-approve -no-color
