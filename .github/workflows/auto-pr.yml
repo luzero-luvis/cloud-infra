@@ -23,8 +23,7 @@ on:
       - "feature/**"  # triggers when you push to any branch starting with feature/
       - "fix/**"      # triggers for fix/ branches (bug fixes)
       - "chore/**"    # triggers for chore/ branches (maintenance, cleanup)
-    branches-ignore:
-      - main          # never run on main — main only receives merged PRs
+      # main is not listed here so it never triggers on main
 
 # PERMISSIONS — this workflow needs to create PRs on your behalf
 permissions:
