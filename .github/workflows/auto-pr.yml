@@ -42,14 +42,13 @@ jobs:
       # Create the PR using the GitHub CLI (gh).
       # gh is pre-installed on all GitHub Actions runners.
       #
-      # --base main          → the PR merges INTO main
-      # --head $BRANCH       → the PR comes FROM this branch
-      # --fill               → use the last commit message as the PR title and body
-      # --no-maintainer-edit → prevents maintainers from editing your branch
+      # --base main   → the PR merges INTO main
+      # --head $BRANCH → the PR comes FROM this branch
+      # --title        → PR title (we use the branch name)
+      # --body         → PR description (checklist template)
       #
-      # "gh pr create" fails if a PR already exists for this branch.
-      # We use "|| true" to ignore that error — so the workflow does not fail
-      # just because a PR was already opened on a previous push.
+      # We check if a PR already exists first to avoid creating duplicates
+      # when you push multiple times to the same branch.
       - name: Create PR if one does not already exist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # built-in token — no setup needed
@@ -61,11 +60,15 @@ jobs:
           if [ -z "$EXISTING_PR" ]; then
             # No PR exists yet — create one
             echo "No existing PR found for $BRANCH. Creating..."
+            # printf interprets \n as a real newline so the PR body renders correctly.
+            # Using plain double quotes ("...") would pass literal \n to GitHub — broken.
+            BODY=$(printf "## What changed\n\n<!-- Describe what this PR does -->\n\n## Checklist\n- [ ] terraform fmt passes\n- [ ] terraform validate passes\n- [ ] checkov scan passes\n- [ ] plan output reviewed\n\n> This PR was created automatically when the branch was pushed.")
+
             gh pr create \
               --base main \
               --head "$BRANCH" \
-              --fill \
-              --body "## What changed\n\n## Checklist\n- [ ] terraform fmt passes\n- [ ] terraform validate passes\n- [ ] checkov scan passes\n- [ ] plan output reviewed\n\n> This PR was created automatically when the branch was pushed."
+              --title "$BRANCH" \
+              --body "$BODY"
           else
             # PR already exists — do nothing
             echo "PR #$EXISTING_PR already exists for $BRANCH. Skipping."

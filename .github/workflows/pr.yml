@@ -53,11 +53,13 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Step 3 — Check if code is formatted correctly
-      # terraform fmt -check reads the code and says "is this properly indented?"
-      # If someone forgot to format, this step FAILS and the PR is blocked
+      # Step 3 — Check if code is formatted correctly across the ENTIRE repo.
+      # We override working-directory to the repo root so modules/ and bootstrap/
+      # are also checked — not just the current env folder.
+      # If someone forgot to format anywhere, this step FAILS and the PR is blocked.
       - name: terraform fmt
         run: terraform fmt -check -recursive
+        working-directory: ${{ github.workspace }}
 
       # Step 4 — Download required plugins (but do NOT connect to S3 backend yet)
       # -backend=false means: skip connecting to S3, just download providers
