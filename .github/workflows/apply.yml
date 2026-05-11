@@ -40,10 +40,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-<<<<<<< feature/add-ci-pipeline
-=======
-      # Connect to S3 backend and download the current state file
->>>>>>> main
       - name: terraform init
         run: terraform init
 
@@ -134,8 +130,4 @@ jobs:
       # Apply the saved plan — not a fresh terraform apply
       # This guarantees exactly what the approver reviewed is what runs
       - name: terraform apply
-<<<<<<< feature/add-ci-pipeline
         run: terraform apply -no-color tfplan.binary
-=======
-        run: terraform apply -auto-approve -no-color
->>>>>>> main

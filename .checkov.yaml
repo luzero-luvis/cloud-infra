@@ -25,14 +25,47 @@ framework:
 # Every skip must have a reason documented — future you will thank you.
 skip-check:
   # CKV_AWS_144 — S3 cross-region replication
-  # Reason: cross-region replication is for disaster recovery.
-  # Our state buckets are not DR-critical enough to warrant the cost.
+  # Reason: state buckets are not DR-critical enough to warrant the cost.
   - CKV_AWS_144
 
   # CKV2_AWS_62 — S3 event notifications
   # Reason: state buckets do not need event notifications.
-  # This check is intended for application buckets, not Terraform state storage.
   - CKV2_AWS_62
+
+  # CKV_AWS_274 — AdministratorAccess policy
+  # Reason: GitHub Actions roles intentionally use AdministratorAccess to allow
+  # Terraform to create any resource. Scope down once permissions are known.
+  - CKV_AWS_274
+
+  # CKV_AWS_158 — CloudWatch log group KMS encryption
+  # Reason: VPC flow logs contain network metadata, not secrets.
+  # AES256 S3 encryption is sufficient; KMS adds cost and key management overhead.
+  - CKV_AWS_158
+
+  # CKV_AWS_145 — S3 KMS encryption
+  # Reason: state buckets use AES256 (AWS-managed key) which is acceptable.
+  # KMS adds per-request cost and key rotation complexity for state storage.
+  - CKV_AWS_145
+
+  # CKV_AWS_18 — S3 access logging
+  # Reason: enabling access logging requires a separate logging bucket.
+  # Adds circular dependency complexity for bootstrap state buckets.
+  - CKV_AWS_18
+
+  # CKV2_AWS_61 — S3 lifecycle configuration
+  # Reason: state bucket old versions are managed via S3 versioning.
+  # Lifecycle rules are not required for this use case.
+  - CKV2_AWS_61
+
+  # CKV2_AWS_6 — S3 public access block
+  # Reason: false positive. Public access block is configured via the separate
+  # aws_s3_bucket_public_access_block resource — Checkov does not correlate them.
+  - CKV2_AWS_6
+
+  # CKV_AWS_21 — S3 versioning
+  # Reason: false positive. Versioning is enabled via the separate
+  # aws_s3_bucket_versioning resource — Checkov does not correlate them.
+  - CKV_AWS_21
 
 # ── SEVERITY THRESHOLD ────────────────────────────────────────────────────────
 # Only FAIL the pipeline when HIGH or CRITICAL issues are found.

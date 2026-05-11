@@ -123,10 +123,7 @@ resource "aws_cloudwatch_log_group" "flow_log" {
   name = "/vpc/${var.env}/flow-logs" # log group name in CloudWatch
   # forward slashes create a folder structure
 
-  # retention_in_days = how long to keep logs before auto-deleting them.
-  # 90 days = 3 months of network history available for investigation.
-  # Shorter = cheaper but less history. Longer = more history but higher cost.
-  retention_in_days = 90
+  retention_in_days = 365
 }
 
 # ── IAM ROLE FOR FLOW LOGS ────────────────────────────────────────────────────
@@ -159,6 +156,17 @@ resource "aws_iam_role" "flow_log" {
 # It only grants the minimum permissions needed to write logs — nothing more.
 # This is the principle of least privilege: only give what is actually needed.
 
+# ── DEFAULT SECURITY GROUP ────────────────────────────────────────────────────
+# Every VPC gets a default security group automatically from AWS.
+# By default it allows all traffic — a security risk.
+# We lock it down to allow nothing, forcing all resources to use explicit security groups.
+
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+  tags   = merge(var.tags, { Name = "${var.env}-default-sg-do-not-use" })
+}
+
+# ── IAM POLICY FOR FLOW LOGS ──────────────────────────────────────────────────
 resource "aws_iam_role_policy" "flow_log" {
   name = "${var.env}-vpc-flow-log-policy"
   role = aws_iam_role.flow_log.id # attach this policy to the flow log role
@@ -174,8 +182,10 @@ resource "aws_iam_role_policy" "flow_log" {
         "logs:DescribeLogGroups", # list log groups (needed to find the right one)
         "logs:DescribeLogStreams" # list log streams
       ]
-      Resource = "*" # applies to all CloudWatch log resources
-      # In production, you would restrict this to just the specific log group ARN
+      Resource = [
+        aws_cloudwatch_log_group.flow_log.arn,
+        "${aws_cloudwatch_log_group.flow_log.arn}:*",
+      ]
     }]
   })
 }

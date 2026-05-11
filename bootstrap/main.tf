@@ -66,8 +66,9 @@ resource "aws_s3_bucket" "tfstate" {
   force_destroy = false
 
   tags = {
-    environment = each.key # "dev" or "prod"
+    environment = each.key
     managed_by  = "terraform"
+    owner       = "platform-team"
     purpose     = "terraform-state"
   }
 }
