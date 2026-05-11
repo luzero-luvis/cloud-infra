@@ -49,8 +49,11 @@ YOU (engineer)
                        │ BOTH must pass
                        ▼
           ┌────────────────────────────────────┐
-          │  JOB 4 — terraform plan            │
-          │  (runs for dev AND prod together)  │
+          │  JOB 4 — terraform plan (dev only) │
+          │                                    │
+          │  Note: prod plan runs post-merge   │
+          │  The prod IAM role only trusts the │
+          │  main branch, not PRs              │
           │                                    │
           │  1. GitHub gets OIDC token         │
           │     (signed proof of identity)     │
@@ -67,7 +70,6 @@ YOU (engineer)
           │  4. terraform init                 │
           │     connects to S3                 │
           │     downloads state file           │
-          │     (decrypts with passphrase)     │
           │                                    │
           │  5. terraform plan                 │
           │     asks AWS: what would change?   │
@@ -148,9 +150,8 @@ S3 (state storage — your files, not GitHub's)
     └── prod/terraform.tfstate.tflock
 
 GitHub Secrets (never visible after saving)
-├── AWS_ROLE_DEV      → IAM role ARN for dev
-├── AWS_ROLE_PROD     → IAM role ARN for prod
-└── STATE_PASSPHRASE  → passphrase that encrypts/decrypts the state file
+├── AWS_ROLE_DEV   → IAM role ARN for dev
+└── AWS_ROLE_PROD  → IAM role ARN for prod
 
 GitHub Variables (visible, not secret)
 └── AWS_REGION        → us-east-1
@@ -187,7 +188,7 @@ GitHub Variables (visible, not secret)
 | Best practices | TFLint | Wrong instance types, deprecated args, unused vars |
 | Security | Checkov | Open ports, missing encryption, wildcard IAM, public S3 |
 | Auth | OIDC | No static keys — GitHub proves identity to AWS |
-| State | S3 + passphrase | State file encrypted at rest |
+| State | S3 AES256 | State file encrypted at rest (S3-native) |
 | Approval | GitHub Environments | Human must approve before prod deploy |
 
 ---
@@ -197,7 +198,6 @@ GitHub Variables (visible, not secret)
 **Secrets** (Settings → Secrets and variables → Actions):
 - `AWS_ROLE_DEV` — `arn:aws:iam::952933884165:role/github-actions-dev`
 - `AWS_ROLE_PROD` — `arn:aws:iam::952933884165:role/github-actions-prod`
-- `STATE_PASSPHRASE` — your encryption passphrase
 
 **Variables**:
 - `AWS_REGION` — `us-east-1`
@@ -216,9 +216,6 @@ GitHub Variables (visible, not secret)
 ## Local development
 
 ```bash
-# set your passphrase (same one stored in GitHub Secrets)
-export TF_VAR_state_passphrase="your-passphrase-here"
-
 # run bootstrap once to create S3 buckets and IAM roles
 cd bootstrap && terraform init && terraform apply
 
