@@ -1,14 +1,34 @@
-# Custom Checkov policy: every resource must carry required tags.
-# Checkov runs this automatically because .checkov.yaml points to policies/
+# ─────────────────────────────────────────────────────────────────────────────
+# CUSTOM CHECKOV POLICY: Require specific tags on all resources
+#
+# This is a rule WE wrote — it is not in Checkov's built-in library.
+# Checkov loads it because .checkov.yaml points to the policies/ folder.
+#
+# WHY DO WE NEED TAGS?
+# In a large AWS account with hundreds of resources, tags answer:
+#   - Who owns this resource? (owner tag)
+#   - Is this dev or prod? (environment tag)
+#   - Was this created by Terraform or manually? (managed_by tag)
+#
+# Without tags, you open the AWS console and see 200 EC2 instances
+# and have no idea what any of them do or who to call when they break.
+#
+# This policy FAILS Checkov if any of the listed resources is missing
+# the required tags — the PR cannot be merged until tags are added.
+# ─────────────────────────────────────────────────────────────────────────────
 
 metadata:
   name: "RequiredTags"
-  id: "CKV_CUSTOM_001"
+  id: "CKV_CUSTOM_001"       # unique ID for this custom check
   category: "GENERAL_SECURITY"
-  severity: "HIGH"
+  severity: "HIGH"            # HIGH means it will fail the pipeline (see .checkov.yaml)
 
 definition:
-  and:
+  and: # ALL three conditions below must be true — if any one fails, the check fails
+
+    # Condition 1: the "environment" tag must exist
+    # Why? Tells you if this resource is dev or prod.
+    # Useful for cost reports and for knowing how careful to be when modifying it.
     - cond_type: "attribute"
       resource_types:
         - "aws_vpc"
@@ -18,8 +38,11 @@ definition:
         - "aws_instance"
         - "aws_db_instance"
       attribute: "tags.environment"
-      operator: "exists"
+      operator: "exists" # the tag key must be present (any value is acceptable)
 
+    # Condition 2: the "owner" tag must exist
+    # Why? When something breaks at 3am, who do you call?
+    # The owner tag answers that question — it points to a team or person.
     - cond_type: "attribute"
       resource_types:
         - "aws_vpc"
@@ -31,6 +54,10 @@ definition:
       attribute: "tags.owner"
       operator: "exists"
 
+    # Condition 3: managed_by must equal exactly "terraform"
+    # Why? Prevents manual changes — if someone edits a resource in the AWS console,
+    # Terraform will overwrite their changes on the next apply.
+    # The tag signals: "do not manually touch this, use the repo instead."
     - cond_type: "attribute"
       resource_types:
         - "aws_vpc"
@@ -41,4 +68,4 @@ definition:
         - "aws_db_instance"
       attribute: "tags.managed_by"
       operator: "equals"
-      value: "terraform"
+      value: "terraform" # must be exactly this string, not "Terraform" or "tf"
