@@ -1,66 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# APPLY WORKFLOW
+#
+# This workflow runs AFTER code is merged into main.
+# It actually creates, changes, or deletes real infrastructure in AWS.
+#
+# Flow:
+#   1. apply-dev  — apply changes to dev immediately (no approval needed)
+#   2. plan-prod  — generate and save the prod plan so a human can review it
+#   3. apply-prod — PAUSE, wait for human approval, then apply the saved plan
+#
+# Why save the plan?
+#   Between "plan" and "apply", something in AWS could have changed manually.
+#   If we re-plan at apply time, the human approved something different from
+#   what actually runs. Saving the plan guarantees: what you approved = what runs.
+# ─────────────────────────────────────────────────────────────────────────────
+
 name: Apply
 
 on:
   push:
-    branches: [main]
+    branches: [main]   # only run when code lands on the main branch
     paths:
-      - "envs/**"
-      - "modules/**"
+      - "envs/**"      # only if environment terraform files changed
+      - "modules/**"   # only if shared module files changed
+      # if you only change README or workflows, this does NOT run — saves time
 
+# PERMISSIONS — what this workflow is allowed to do on GitHub
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # required to request an OIDC token from GitHub (used to log into AWS)
+  contents: read   # required to download the repo code onto the runner
 
+# GLOBAL VARIABLES — shared across all jobs below
 env:
-  TF_VERSION: "1.10.5"
+  TF_VERSION: "1.10.5"  # pin Terraform version so all jobs use the exact same binary
+
 
 jobs:
 
-  # ── JOB 1 ───────────────────────────────────────────────────────────────────
-  # Apply dev first — always deploy to dev before prod
-  # ────────────────────────────────────────────────────────────────────────────
+  # ── JOB 1: APPLY DEV ────────────────────────────────────────────────────────
+  # Runs immediately when code hits main — no approval needed for dev.
+  # Dev is a safe sandbox. If something breaks here, nothing real is affected.
+  # Prod never runs until dev succeeds first (enforced by needs: apply-dev below).
+  # ─────────────────────────────────────────────────────────────────────────────
   apply-dev:
     name: apply dev
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # GitHub spins up a fresh Linux machine for this job
+
+    # "environment: dev" links this job to the GitHub Environment named "dev".
+    # You can add optional reviewers in GitHub Settings → Environments → dev.
+    # Even without reviewers, GitHub logs every deployment here for audit history.
     environment: dev
+
     defaults:
       run:
-        working-directory: envs/dev
+        working-directory: envs/dev  # every command below runs inside the envs/dev folder
+
     steps:
+      # Step 1 — Download the repo code onto the runner machine.
+      # Without this, the runner is an empty Linux box with nothing on it.
       - uses: actions/checkout@v4
 
+      # Step 2 — Log into AWS using OIDC (no passwords, no access keys).
+      # GitHub generates a short-lived signed token proving "I am this repo".
+      # AWS checks the token against the trust policy on the IAM role.
+      # If it matches, AWS hands back temporary credentials (expire in 1 hour).
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}
-          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}  # IAM role ARN stored in GitHub Secrets
+          aws-region: ${{ vars.AWS_REGION }}            # e.g. us-east-1, stored in GitHub Variables
 
+      # Step 3 — Install the exact Terraform version on the runner.
+      # Pinning the version prevents surprises when HashiCorp releases a new version.
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Step 4 — Connect to the S3 backend and download the current state file.
+      # The state file is Terraform's memory — it knows what already exists in AWS.
+      # Without init, Terraform does not know where the state is stored.
       - name: terraform init
         run: terraform init
 
+      # Step 5 — Apply the changes to dev.
+      # -auto-approve = do not ask "are you sure?" (PR review was our approval step)
+      # -no-color     = remove color codes so GitHub Actions logs are clean text
+      # After apply, the updated state file is saved back to S3 automatically.
       - name: terraform apply
         run: terraform apply -auto-approve -no-color
 
 
-  # ── JOB 2 ───────────────────────────────────────────────────────────────────
-  # Plan prod AFTER dev succeeds — saves the plan so the approver can review
-  # exactly what will change before clicking Approve
-  # ────────────────────────────────────────────────────────────────────────────
+  # ── JOB 2: PLAN PROD ────────────────────────────────────────────────────────
+  # Runs AFTER dev apply succeeds (needs: apply-dev).
+  # Does NOT apply anything — only plans, so a human can review before approving.
+  # Saves the plan as a file so apply-prod uses the EXACT same plan that was reviewed.
+  # ─────────────────────────────────────────────────────────────────────────────
   plan-prod:
     name: plan prod
     runs-on: ubuntu-latest
-    needs: apply-dev
+    needs: apply-dev  # wait for dev to finish successfully — if dev fails, prod never runs
+
     defaults:
       run:
-        working-directory: envs/prod
+        working-directory: envs/prod  # all commands run inside envs/prod
+
     steps:
       - uses: actions/checkout@v4
 
+      # Log into AWS using the PROD role.
+      # The prod role trust policy only allows:
+      #   - ref:refs/heads/main  (push to main — this job)
+      #   - environment:production (the apply-prod job below)
+      # Feature branches cannot assume this role — even if someone tries.
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -72,40 +124,64 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Connect to the prod S3 backend and download the prod state file.
       - name: terraform init
         run: terraform init
 
+      # Generate the prod plan and save it in two formats:
+      #   -out=tfplan.binary  → machine-readable plan file (used by apply-prod to apply)
+      #   tee plan.txt        → human-readable text (uploaded so the approver can read it)
+      #   2>&1                → capture both stdout and stderr into plan.txt
+      #   -no-color           → clean text output, no terminal color codes
       - name: terraform plan
         run: terraform plan -out=tfplan.binary -no-color 2>&1 | tee plan.txt
 
-      # Upload both the binary plan (used by apply) and the text plan (for the approver to read)
+      # Upload both files as a GitHub Actions artifact.
+      # The approver can download plan.txt from the Actions UI to see exactly what will change.
+      # apply-prod downloads tfplan.binary to apply the exact same plan.
+      # retention-days: 7 = artifact is deleted after 7 days to save storage.
       - name: Upload plan artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan-prod-${{ github.sha }}
+          name: tfplan-prod-${{ github.sha }}  # unique name per commit so old plans do not clash
           path: |
-            envs/prod/tfplan.binary
-            envs/prod/plan.txt
+            envs/prod/tfplan.binary  # binary plan used by apply-prod
+            envs/prod/plan.txt       # human-readable plan for the approver to review
           retention-days: 7
 
 
-  # ── JOB 3 ───────────────────────────────────────────────────────────────────
-  # Apply prod — PAUSES here until a human clicks Approve in GitHub UI
-  # Approver should download the plan artifact from Job 2 to review before approving
-  # Applies the EXACT saved plan file — not a fresh plan — so no drift between
-  # what was reviewed and what actually runs
-  # ────────────────────────────────────────────────────────────────────────────
+  # ── JOB 3: APPLY PROD ───────────────────────────────────────────────────────
+  # Runs AFTER plan-prod (needs: plan-prod).
+  # PAUSES here — GitHub sends a notification to the required reviewers.
+  # The reviewer downloads the plan artifact, reads it, then clicks Approve.
+  # Only then does this job continue and apply to prod.
+  #
+  # Critically: it applies the SAVED plan file from plan-prod, not a fresh plan.
+  # This means what the human approved is EXACTLY what runs — no surprises.
+  # ─────────────────────────────────────────────────────────────────────────────
   apply-prod:
     name: apply prod
     runs-on: ubuntu-latest
-    needs: plan-prod
+    needs: plan-prod  # wait for plan-prod to finish and upload the artifact
+
+    # "environment: production" is what triggers the approval gate.
+    # GitHub pauses this job and sends a notification to required reviewers.
+    # Reviewers are configured in: GitHub Settings → Environments → production → Required reviewers
+    # The job only continues after a reviewer clicks "Approve and deploy".
     environment: production
+
     defaults:
       run:
         working-directory: envs/prod
+
     steps:
       - uses: actions/checkout@v4
 
+      # Log into AWS with the prod role.
+      # When a job has "environment: production", GitHub's OIDC token sub claim
+      # becomes "environment:production" instead of "ref:refs/heads/main".
+      # The prod IAM trust policy allows both — that is why both this job and
+      # plan-prod can authenticate with AWS.
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -117,17 +193,22 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Connect to the prod S3 backend — same as plan-prod did.
+      # Terraform needs the state file to understand what currently exists.
       - name: terraform init
         run: terraform init
 
-      # Download the saved plan from Job 2
+      # Download the saved plan artifact that plan-prod uploaded.
+      # This gives us the exact tfplan.binary file the reviewer saw.
       - name: Download plan artifact
         uses: actions/download-artifact@v4
         with:
-          name: tfplan-prod-${{ github.sha }}
-          path: envs/prod
+          name: tfplan-prod-${{ github.sha }}  # must match the name used in plan-prod
+          path: envs/prod                      # download into the working directory
 
-      # Apply the saved plan — not a fresh terraform apply
-      # This guarantees exactly what the approver reviewed is what runs
+      # Apply the saved plan file — NOT a fresh terraform apply.
+      # terraform apply tfplan.binary = "execute exactly this pre-approved plan"
+      # -no-color = clean logs
+      # No -auto-approve needed — the plan file itself acts as the approval.
       - name: terraform apply
         run: terraform apply -no-color tfplan.binary
