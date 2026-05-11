@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO PR — automatically opens a Pull Request when you push to any branch.
+#
+# How it works:
+#   You push to feature/add-vpc
+#        ↓
+#   This workflow runs
+#        ↓
+#   Checks if a PR already exists for this branch
+#        ↓
+#   If NO  → creates a PR to main automatically
+#   If YES → does nothing (avoids creating duplicate PRs)
+#
+# After the PR is created, pr.yml kicks in automatically
+# and runs fmt, validate, tflint, checkov, and plan.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Auto PR
+
+on:
+  push:
+    branches:
+      - "feature/**"  # triggers when you push to any branch starting with feature/
+      - "fix/**"      # triggers for fix/ branches (bug fixes)
+      - "chore/**"    # triggers for chore/ branches (maintenance, cleanup)
+    branches-ignore:
+      - main          # never run on main — main only receives merged PRs
+
+# PERMISSIONS — this workflow needs to create PRs on your behalf
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    name: Open PR to main
+    runs-on: ubuntu-latest
+
+    steps:
+      # Download repo code so we can inspect the branch
+      - uses: actions/checkout@v4
+
+      # Create the PR using the GitHub CLI (gh).
+      # gh is pre-installed on all GitHub Actions runners.
+      #
+      # --base main          → the PR merges INTO main
+      # --head $BRANCH       → the PR comes FROM this branch
+      # --fill               → use the last commit message as the PR title and body
+      # --no-maintainer-edit → prevents maintainers from editing your branch
+      #
+      # "gh pr create" fails if a PR already exists for this branch.
+      # We use "|| true" to ignore that error — so the workflow does not fail
+      # just because a PR was already opened on a previous push.
+      - name: Create PR if one does not already exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # built-in token — no setup needed
+          BRANCH: ${{ github.ref_name }}         # the branch that was just pushed to
+        run: |
+          # Check if a PR already exists for this branch
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --base main --json number --jq '.[0].number')
+
+          if [ -z "$EXISTING_PR" ]; then
+            # No PR exists yet — create one
+            echo "No existing PR found for $BRANCH. Creating..."
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --fill \
+              --body "$(cat <<'EOF'
+## What changed
+<!-- Describe what this PR does -->
+
+## Checklist
+- [ ] terraform fmt passes
+- [ ] terraform validate passes
+- [ ] checkov scan passes
+- [ ] plan output reviewed
+
+> This PR was created automatically when the branch was pushed.
+EOF
+)"
+          else
+            # PR already exists — do nothing
+            echo "PR #$EXISTING_PR already exists for $BRANCH. Skipping."
+          fi
