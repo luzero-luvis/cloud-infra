@@ -12,10 +12,10 @@
 
 locals {
   common_tags = {
-    environment = "dev"              # which environment this resource belongs to
-    project     = "cloud-infra"      # which project owns this resource
-    owner       = "platform-team"    # which team is responsible for this resource
-    cost_center = "engineering"      # used for AWS cost reports — who pays for this?
-    managed_by  = "terraform"        # signals: do NOT manually edit this in the console
+    environment = "dev"           # which environment this resource belongs to
+    project     = "cloud-infra"   # which project owns this resource
+    owner       = "platform-team" # which team is responsible for this resource
+    cost_center = "engineering"   # used for AWS cost reports — who pays for this?
+    managed_by  = "terraform"     # signals: do NOT manually edit this in the console
   }
 }

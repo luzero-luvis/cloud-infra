@@ -62,8 +62,8 @@ resource "aws_subnet" "public" {
   count = length(var.public_subnet_cidrs) # create one subnet per CIDR in the list
 
   vpc_id            = aws_vpc.this.id
-  cidr_block        = var.public_subnet_cidrs[count.index]  # grab the Nth CIDR from the list
-  availability_zone = var.availability_zones[count.index]   # spread across AZs for resilience
+  cidr_block        = var.public_subnet_cidrs[count.index] # grab the Nth CIDR from the list
+  availability_zone = var.availability_zones[count.index]  # spread across AZs for resilience
 
   # map_public_ip_on_launch = false means:
   # Resources launched in this subnet do NOT automatically get a public IP.
@@ -107,11 +107,11 @@ resource "aws_subnet" "private" {
 resource "aws_flow_log" "this" {
   vpc_id       = aws_vpc.this.id
   traffic_type = "ALL" # log ALL traffic: accepted and rejected connections
-                       # "ACCEPT" would only log successful connections
-                       # "REJECT" would only log blocked connections
-                       # "ALL" is best for security — you want to see everything
+  # "ACCEPT" would only log successful connections
+  # "REJECT" would only log blocked connections
+  # "ALL" is best for security — you want to see everything
 
-  iam_role_arn    = aws_iam_role.flow_log.arn            # role that allows writing logs
+  iam_role_arn    = aws_iam_role.flow_log.arn             # role that allows writing logs
   log_destination = aws_cloudwatch_log_group.flow_log.arn # where to write the logs
 }
 
@@ -121,12 +121,9 @@ resource "aws_flow_log" "this" {
 
 resource "aws_cloudwatch_log_group" "flow_log" {
   name = "/vpc/${var.env}/flow-logs" # log group name in CloudWatch
-                                     # forward slashes create a folder structure
+  # forward slashes create a folder structure
 
-  # retention_in_days = how long to keep logs before auto-deleting them.
-  # 90 days = 3 months of network history available for investigation.
-  # Shorter = cheaper but less history. Longer = more history but higher cost.
-  retention_in_days = 90
+  retention_in_days = 365
 }
 
 # ── IAM ROLE FOR FLOW LOGS ────────────────────────────────────────────────────
@@ -159,6 +156,17 @@ resource "aws_iam_role" "flow_log" {
 # It only grants the minimum permissions needed to write logs — nothing more.
 # This is the principle of least privilege: only give what is actually needed.
 
+# ── DEFAULT SECURITY GROUP ────────────────────────────────────────────────────
+# Every VPC gets a default security group automatically from AWS.
+# By default it allows all traffic — a security risk.
+# We lock it down to allow nothing, forcing all resources to use explicit security groups.
+
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+  tags   = merge(var.tags, { Name = "${var.env}-default-sg-do-not-use" })
+}
+
+# ── IAM POLICY FOR FLOW LOGS ──────────────────────────────────────────────────
 resource "aws_iam_role_policy" "flow_log" {
   name = "${var.env}-vpc-flow-log-policy"
   role = aws_iam_role.flow_log.id # attach this policy to the flow log role
@@ -168,14 +176,16 @@ resource "aws_iam_role_policy" "flow_log" {
     Statement = [{
       Effect = "Allow"
       Action = [
-        "logs:CreateLogGroup",   # create a log group if it does not exist
-        "logs:CreateLogStream",  # create a log stream (like a file) inside the group
-        "logs:PutLogEvents",     # write log entries into the stream
-        "logs:DescribeLogGroups",  # list log groups (needed to find the right one)
-        "logs:DescribeLogStreams"  # list log streams
+        "logs:CreateLogGroup",    # create a log group if it does not exist
+        "logs:CreateLogStream",   # create a log stream (like a file) inside the group
+        "logs:PutLogEvents",      # write log entries into the stream
+        "logs:DescribeLogGroups", # list log groups (needed to find the right one)
+        "logs:DescribeLogStreams" # list log streams
       ]
-      Resource = "*" # applies to all CloudWatch log resources
-      # In production, you would restrict this to just the specific log group ARN
+      Resource = [
+        aws_cloudwatch_log_group.flow_log.arn,
+        "${aws_cloudwatch_log_group.flow_log.arn}:*",
+      ]
     }]
   })
 }
