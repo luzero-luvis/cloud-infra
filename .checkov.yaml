@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CHECKOV CONFIGURATION
+#
+# Checkov is the security police for your Terraform code.
+# It reads your .tf files BEFORE anything is created in AWS and asks:
+# "Is this safe? Is this following security best practices?"
+#
+# Run locally: checkov -d . --config-file .checkov.yaml
+# In CI/CD: this file is picked up automatically by the checkov-action in pr.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Which folders to scan
+directory:
+  - .  # scan the entire repo from the root
+
+# Which types of files to scan
+# Checkov supports many more (kubernetes, helm, dockerfile, etc.)
+framework:
+  - terraform       # scan .tf files
+  - dockerfile      # scan Dockerfiles for security issues
+  - github_actions  # scan .github/workflows/*.yml for dangerous patterns
+
+# ── SKIP LIST ────────────────────────────────────────────────────────────────
+# Some checks are valid security concerns in general but do not apply to us.
+# Every skip must have a reason documented — future you will thank you.
+skip-check:
+  # CKV_AWS_144 — S3 cross-region replication
+  # Reason: cross-region replication is for disaster recovery.
+  # Our state buckets are not DR-critical enough to warrant the cost.
+  - CKV_AWS_144
+
+  # CKV2_AWS_62 — S3 event notifications
+  # Reason: state buckets do not need event notifications.
+  # This check is intended for application buckets, not Terraform state storage.
+  - CKV2_AWS_62
+
+# ── SEVERITY THRESHOLD ────────────────────────────────────────────────────────
+# Only FAIL the pipeline when HIGH or CRITICAL issues are found.
+# LOW and MEDIUM issues are still reported (you can see them in the log)
+# but they do NOT block the PR.
+# Why? LOW issues are often informational and not worth blocking work over.
+hard-fail-on: HIGH,CRITICAL
+
+# ── CUSTOM POLICIES ───────────────────────────────────────────────────────────
+# Load our own security rules from the policies/ folder.
+# These are rules Checkov does not have built-in — specific to our company.
+# Example: "every resource must have an owner tag"
+external-checks-dir:
+  - policies/
+
+# Show only failed checks (not the long list of passed checks).
+# Makes the output much easier to read in GitHub Actions logs.
+compact: true
+
+# Output format — "cli" means human-readable text in the terminal.
+output:
+  - cli

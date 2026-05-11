@@ -1,0 +1,229 @@
+# This workflow runs automatically when someone opens or updates a Pull Request.
+# It checks the code BEFORE anyone reviews or merges it.
+# Think of it as a robot that checks your homework before the teacher sees it.
+
+name: PR Checks
+
+on:
+  # WHEN to run this workflow
+  pull_request:
+    branches: [main]           # only when the PR is trying to merge INTO main
+    paths:
+      - "envs/**"              # only if terraform environment files changed
+      - "modules/**"           # only if terraform module files changed
+      - ".github/workflows/**" # only if the workflow files themselves changed
+      # (if you only change README, this workflow does NOT run — saves time)
+
+# PERMISSIONS — what this workflow is allowed to do on GitHub
+permissions:
+  id-token: write      # allowed to get an OIDC token (needed to talk to AWS)
+  contents: read       # allowed to read the repo code
+  pull-requests: write # allowed to post comments on the PR
+
+# GLOBAL VARIABLES — values used across all jobs below
+env:
+  TF_VERSION:     "1.10.5"  # which version of Terraform to install
+  TFLINT_VERSION: "v0.51.2" # which version of TFLint to install
+
+jobs:
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # JOB 1: Check formatting and syntax
+  # Runs for BOTH dev and prod at the same time (matrix)
+  # ───────────────────────────────────────────────────────────────────────────
+  fmt-validate:
+    name: fmt & validate
+    runs-on: ubuntu-latest  # use a fresh Linux machine provided by GitHub
+
+    strategy:
+      matrix:
+        env: [dev, prod]    # run this job twice — once for dev, once for prod
+
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.env }}  # cd into envs/dev or envs/prod automatically
+
+    steps:
+      # Step 1 — Download your repo code onto the runner machine
+      - uses: actions/checkout@v4
+
+      # Step 2 — Install Terraform on the runner machine
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Step 3 — Check if code is formatted correctly across the ENTIRE repo.
+      # We override working-directory to the repo root so modules/ and bootstrap/
+      # are also checked — not just the current env folder.
+      # If someone forgot to format anywhere, this step FAILS and the PR is blocked.
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+        working-directory: ${{ github.workspace }}
+
+      # Step 4 — Download required plugins (but do NOT connect to S3 backend yet)
+      # -backend=false means: skip connecting to S3, just download providers
+      - name: terraform init
+        run: terraform init -backend=false
+
+      # Step 5 — Check if the code is valid Terraform syntax
+      # Like spell-check — catches typos, missing brackets, wrong resource names
+      - name: terraform validate
+        run: terraform validate
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # JOB 2: TFLint — deeper code quality checks
+  # Only starts AFTER Job 1 passes (needs: fmt-validate)
+  # ───────────────────────────────────────────────────────────────────────────
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    needs: fmt-validate     # wait for Job 1 to finish successfully before starting
+
+    strategy:
+      matrix:
+        env: [dev, prod]    # run for both environments
+
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.env }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install TFLint on the runner machine
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      # Download TFLint plugins (e.g. the AWS ruleset)
+      - name: Init TFLint
+        run: tflint --init
+
+      # Run TFLint — checks things terraform validate does NOT catch:
+      # - wrong EC2 instance types (e.g. "t2.pico" doesn't exist)
+      # - deprecated resource arguments
+      # - variables that are declared but never used
+      # - missing required tags
+      - name: Run TFLint
+        run: tflint --format compact
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # JOB 3: Checkov — security scanning
+  # Runs in PARALLEL with tflint (both need fmt-validate, not each other)
+  # ───────────────────────────────────────────────────────────────────────────
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    needs: fmt-validate     # wait for Job 1, but runs at same time as tflint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Run Checkov security scanner on the entire repo
+      # Checkov reads your terraform code and looks for dangerous patterns:
+      # - S3 bucket open to public?
+      # - SSH port open to the entire internet?
+      # - Missing encryption?
+      # - IAM policy that allows everything to everyone?
+      # If it finds HIGH or CRITICAL issues → this step FAILS → PR is blocked
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .               # scan the whole repo
+          config_file: .checkov.yaml # use our custom config (thresholds, skips, custom policies)
+          output_format: cli         # show results in the GitHub Actions log
+          soft_fail: false           # fail the pipeline on HIGH/CRITICAL findings (not just warn)
+
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # JOB 4: Terraform Plan — show exactly what will change in AWS
+  # Only starts AFTER both tflint AND checkov pass
+  # This is the most important step — reviewers read this output to decide
+  # whether to approve the PR
+  # ───────────────────────────────────────────────────────────────────────────
+  plan:
+    name: terraform plan (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    needs: [tflint, checkov]  # wait for BOTH Job 2 and Job 3 to pass
+
+    strategy:
+      matrix:
+        env: [dev, prod]    # run plan for both environments
+
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.env }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Log into AWS using OIDC — no passwords, no access keys
+      # GitHub proves its identity to AWS using a signed token
+      # AWS returns temporary credentials that expire in 1 hour
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # pick dev role for dev, prod role for prod
+          role-to-assume: ${{ matrix.env == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Connect to the S3 backend and download the current state file
+      # STATE_PASSPHRASE is used to decrypt the state file (our passphrase encryption)
+      - name: terraform init
+        run: terraform init
+        env:
+          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
+
+      # Generate the plan — asks AWS "what would change if we apply this code?"
+      # -out=tfplan.binary  saves the plan to a file (for the artifact upload)
+      # -no-color           removes color codes so the PR comment looks clean
+      # tee plan.txt        saves the output to plan.txt AND shows it in the log
+      # 2>&1                captures both normal output and errors into plan.txt
+      - name: terraform plan
+        id: plan
+        env:
+          TF_VAR_state_passphrase: ${{ secrets.STATE_PASSPHRASE }}
+        run: |
+          terraform plan -out=tfplan.binary -no-color 2>&1 | tee plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      # Save the plan file as a GitHub artifact so it can be downloaded later
+      # Kept for 7 days — useful if someone wants to inspect the exact plan
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}-${{ github.sha }}
+          path: envs/${{ matrix.env }}/tfplan.binary
+          retention-days: 7
+
+      # Post the plan output as a comment on the PR
+      # This means the reviewer can see exactly what will change in AWS
+      # without leaving GitHub — no need to run terraform locally
+      - name: Post plan as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('envs/${{ matrix.env }}/plan.txt', 'utf8');
+            const maxLen = 65000;
+            // GitHub comments have a size limit — truncate if plan is very large
+            const body = plan.length > maxLen
+              ? plan.slice(0, maxLen) + '\n\n... (truncated)'
+              : plan;
+
+            // Post the comment on the PR
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — \`${{ matrix.env }}\`\n\`\`\`hcl\n${body}\n\`\`\``
+            });

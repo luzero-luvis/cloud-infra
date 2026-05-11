@@ -1,0 +1,20 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+tfplan.binary
+*.tfstate
+*.tfstate.backup
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Checkov
+.checkov/
+
+# Secrets — never commit these
+*.pem
+*.key
+.env
