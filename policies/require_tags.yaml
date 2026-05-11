@@ -1,0 +1,44 @@
+# Custom Checkov policy: every resource must carry required tags.
+# Checkov runs this automatically because .checkov.yaml points to policies/
+
+metadata:
+  name: "RequiredTags"
+  id: "CKV_CUSTOM_001"
+  category: "GENERAL_SECURITY"
+  severity: "HIGH"
+
+definition:
+  and:
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_vpc"
+        - "aws_subnet"
+        - "aws_security_group"
+        - "aws_s3_bucket"
+        - "aws_instance"
+        - "aws_db_instance"
+      attribute: "tags.environment"
+      operator: "exists"
+
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_vpc"
+        - "aws_subnet"
+        - "aws_security_group"
+        - "aws_s3_bucket"
+        - "aws_instance"
+        - "aws_db_instance"
+      attribute: "tags.owner"
+      operator: "exists"
+
+    - cond_type: "attribute"
+      resource_types:
+        - "aws_vpc"
+        - "aws_subnet"
+        - "aws_security_group"
+        - "aws_s3_bucket"
+        - "aws_instance"
+        - "aws_db_instance"
+      attribute: "tags.managed_by"
+      operator: "equals"
+      value: "terraform"

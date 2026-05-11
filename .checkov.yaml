@@ -1,0 +1,33 @@
+# Checkov configuration
+# Run: checkov -d . --config-file .checkov.yaml
+
+directory:
+  - .
+
+# Scan these frameworks
+framework:
+  - terraform
+  - dockerfile
+  - github_actions
+
+# Skip checks that are known false-positives or handled by other controls.
+# Document the reason for every skip.
+skip-check:
+  # CKV_AWS_144 — S3 cross-region replication: not required for non-DR buckets
+  - CKV_AWS_144
+  # CKV2_AWS_62 — S3 event notifications: optional for state bucket
+  - CKV2_AWS_62
+
+# Severity threshold — only fail on HIGH and CRITICAL
+check-threshold: HIGH
+
+# Custom policies directory
+external-checks-dir:
+  - policies/
+
+# Fail on first failed check in CI (faster feedback)
+compact: true
+
+# Output format
+output:
+  - cli
