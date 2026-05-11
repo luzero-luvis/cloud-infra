@@ -121,11 +121,15 @@ resource "aws_iam_role" "github_actions_prod" {
         Condition = {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-
-            # "sub" here uses StringEquals (exact match) instead of StringLike (wildcard).
-            # ref:refs/heads/main = EXACTLY the main branch — nothing else.
-            # A PR branch like "feature/add-vpc" does NOT match this → access denied.
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:ref:refs/heads/main"
+          }
+          # When a job has no environment, sub = ref:refs/heads/main
+          # When a job has environment: production, sub = environment:production
+          # Both must be allowed so plan-prod and apply-prod can authenticate
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:${var.github_repo}:ref:refs/heads/main",
+              "repo:${var.github_repo}:environment:production",
+            ]
           }
         }
       }
