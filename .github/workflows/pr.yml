@@ -152,7 +152,7 @@ jobs:
 
     strategy:
       matrix:
-        env: [dev, prod]    # run plan for both environments
+        env: [dev]    # prod plan runs after merge via apply.yml; prod role does not trust PRs
 
     defaults:
       run:
@@ -167,8 +167,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # pick dev role for dev, prod role for prod
-          role-to-assume: ${{ matrix.env == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
+          role-to-assume: ${{ secrets.AWS_ROLE_DEV }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Setup Terraform
